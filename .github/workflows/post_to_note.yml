@@ -1,0 +1,46 @@
+name: Post Articles to note.com
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "articles/*.md"
+
+jobs:
+  post-to-note:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2  # HEAD~1 との diff に必要
+
+      - name: Detect new article files
+        id: detect
+        run: |
+          NEW_FILES=$(git diff --name-only --diff-filter=A HEAD~1 HEAD -- 'articles/*.md' | tr '\n' ' ' | xargs)
+          echo "files=$NEW_FILES" >> "$GITHUB_OUTPUT"
+          if [ -z "$NEW_FILES" ]; then
+            echo "新規記事なし"
+          else
+            echo "新規記事を検出: $NEW_FILES"
+          fi
+
+      - name: Set up Python
+        if: steps.detect.outputs.files != ''
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        if: steps.detect.outputs.files != ''
+        run: pip install -r requirements.txt
+
+      - name: Post to note.com
+        if: steps.detect.outputs.files != ''
+        env:
+          NOTE_EMAIL: ${{ secrets.NOTE_EMAIL }}
+          NOTE_PASSWORD: ${{ secrets.NOTE_PASSWORD }}
+        run: python scripts/post_to_note.py ${{ steps.detect.outputs.files }}
