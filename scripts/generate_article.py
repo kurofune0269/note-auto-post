@@ -84,12 +84,13 @@ def generate_article(client, theme: str) -> tuple[str, str, list[str]]:
 
 テーマ: {theme}
 
-必ず以下のJSON形式だけで返してください（前後に余分なテキスト不要）:
-{{
-  "title": "記事タイトル（魅力的で30字以内）",
-  "tags": ["テクニカル分析", "投資初心者", "株式投資"],
-  "content": "記事本文（マークダウン形式、1500〜2000字程度）"
-}}
+必ず以下の形式だけで返してください（前後に余分なテキスト不要）:
+
+TITLE: 記事タイトル（魅力的で30字以内）
+TAGS: テクニカル分析,投資初心者,株式投資
+---CONTENT---
+記事本文（マークダウン形式、1500〜2000字）
+---END---
 
 記事の要件:
 - 投資初心者が理解できる平易な言葉で説明
@@ -106,14 +107,18 @@ def generate_article(client, theme: str) -> tuple[str, str, list[str]]:
         response = stream.get_final_message()
 
     text = next(b.text for b in response.content if b.type == "text")
-    # ```json ... ``` ブロックを優先的に抽出
-    block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
-    json_match = block_match or re.search(r"\{.*\}", text, re.DOTALL)
-    if not json_match:
-        raise ValueError(f"JSONを抽出できませんでした:\n{text}")
-    raw = block_match.group(1) if block_match else json_match.group()
-    data = json.loads(raw)
-    return data["title"], data["content"], data.get("tags", [])
+
+    title_match = re.search(r"^TITLE:\s*(.+)$", text, re.MULTILINE)
+    tags_match = re.search(r"^TAGS:\s*(.+)$", text, re.MULTILINE)
+    content_match = re.search(r"---CONTENT---\s*(.*?)\s*---END---", text, re.DOTALL)
+
+    if not title_match or not content_match:
+        raise ValueError(f"レスポンスをパースできませんでした:\n{text}")
+
+    title = title_match.group(1).strip()
+    tags = [t.strip() for t in tags_match.group(1).split(",")] if tags_match else ["テクニカル分析", "投資初心者", "株式投資"]
+    content = content_match.group(1).strip()
+    return title, content, tags
 
 
 def checker_agent(client, theme: str, title: str, content: str) -> tuple[bool, str]:
