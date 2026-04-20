@@ -8,6 +8,7 @@ import sys
 import os
 import re
 import json
+import time
 import subprocess
 from datetime import datetime
 import anthropic
@@ -99,12 +100,22 @@ TAGS: テクニカル分析,投資初心者,株式投資
 - 導入→解説→まとめの流れ
 - 本文は必ず 1500 字以上 2000 字以内"""
 
-    with client.messages.stream(
-        model="claude-opus-4-6",
-        max_tokens=8192,
-        messages=[{"role": "user", "content": prompt}],
-    ) as stream:
-        response = stream.get_final_message()
+    for api_attempt in range(5):
+        try:
+            with client.messages.stream(
+                model="claude-opus-4-6",
+                max_tokens=8192,
+                messages=[{"role": "user", "content": prompt}],
+            ) as stream:
+                response = stream.get_final_message()
+            break
+        except anthropic.APIStatusError as e:
+            if "overloaded" in str(e).lower() and api_attempt < 4:
+                wait = 2 ** (api_attempt + 1)
+                print(f"  API過負荷、{wait}秒後に再試行 ({api_attempt+1}/5)...")
+                time.sleep(wait)
+            else:
+                raise
 
     text = next(b.text for b in response.content if b.type == "text")
 
@@ -146,11 +157,21 @@ def checker_agent(client, theme: str, title: str, content: str) -> tuple[bool, s
 - テーマに沿った内容であること
 - 構造（見出し・導入・まとめ）が整っていること"""
 
-    message = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=512,
-        messages=[{"role": "user", "content": prompt}],
-    )
+    for api_attempt in range(5):
+        try:
+            message = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            break
+        except anthropic.APIStatusError as e:
+            if "overloaded" in str(e).lower() and api_attempt < 4:
+                wait = 2 ** (api_attempt + 1)
+                print(f"  チェッカーAPI過負荷、{wait}秒後に再試行 ({api_attempt+1}/5)...")
+                time.sleep(wait)
+            else:
+                raise
     text = message.content[0].text
     block_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
     json_match = block_match or re.search(r"\{.*\}", text, re.DOTALL)
@@ -197,7 +218,7 @@ def git_push(filepath: str, title: str):
             return
         wait = 2 ** (attempt + 1)
         print(f"  push 失敗（試行 {attempt+1}/4）, {wait}秒後に再試行...")
-        import time; time.sleep(wait)
+        time.sleep(wait)
     raise RuntimeError(f"git push が失敗しました:\n{result.stderr}")
 
 
