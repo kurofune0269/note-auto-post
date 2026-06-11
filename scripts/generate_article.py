@@ -100,22 +100,35 @@ TAGS: テクニカル分析,投資初心者,株式投資
 - 導入→解説→まとめの流れ
 - 本文は必ず 1500 字以上 2000 字以内"""
 
-    for api_attempt in range(5):
-        try:
-            with client.messages.stream(
-                model="claude-opus-4-6",
-                max_tokens=8192,
-                messages=[{"role": "user", "content": prompt}],
-            ) as stream:
-                response = stream.get_final_message()
+    response = None
+    used_model = None
+    for model_name in ["claude-opus-4-6", "claude-sonnet-4-6"]:
+        for api_attempt in range(5):
+            try:
+                with client.messages.stream(
+                    model=model_name,
+                    max_tokens=8192,
+                    messages=[{"role": "user", "content": prompt}],
+                ) as stream:
+                    response = stream.get_final_message()
+                used_model = model_name
+                break
+            except anthropic.APIStatusError as e:
+                if "overloaded" in str(e).lower() and api_attempt < 4:
+                    wait = 2 ** (api_attempt + 1)
+                    print(f"  API過負荷({model_name})、{wait}秒後に再試行 ({api_attempt+1}/5)...")
+                    time.sleep(wait)
+                elif "overloaded" in str(e).lower():
+                    print(f"  {model_name} 過負荷、次のモデルへ切り替え...")
+                    break
+                else:
+                    raise
+        if used_model:
             break
-        except anthropic.APIStatusError as e:
-            if "overloaded" in str(e).lower() and api_attempt < 4:
-                wait = 2 ** (api_attempt + 1)
-                print(f"  API過負荷、{wait}秒後に再試行 ({api_attempt+1}/5)...")
-                time.sleep(wait)
-            else:
-                raise
+    if response is None:
+        raise RuntimeError("全モデルが過負荷状態です。後ほど再試行してください。")
+    if used_model != "claude-opus-4-6":
+        print(f"  フォールバックモデル使用: {used_model}")
 
     text = next(b.text for b in response.content if b.type == "text")
 
